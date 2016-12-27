@@ -3,10 +3,6 @@ julia> # m|> save( filename, force=true)
 
 julia> # m = Migrations.read( filename)
 
-julia> # m|>migrate
-
-julia> # m|>rollback
-
 """
 module Migrations
 
@@ -58,7 +54,7 @@ Migration() = Migration( NotImplemented(), NotImplemented(), NotImplemented(), D
 
 
 """
-Migrations.Migration() |> check_text(\"""()->true\""")
+Migrations.Migration() |> check_text(\"""(m)->true\""")
 """
 check_text( t::AbstractString) = (m::Migration)->check_text( m, t)
 
@@ -67,7 +63,7 @@ check_text( t::AbstractString) = (m::Migration)->check_text( m, t)
 """
 m = Migrations.Migration(); 
 
-check_text( m, \"""()->info(\"hello from migration\")\""" )
+check_text( m, \"""(m)->info(\"hello from migration\")\""" )
 """
 check_text( m::Migration, t::AbstractString) = Migration( Implemented(t), m.migrate, m.rollback, m.store)
 
@@ -83,7 +79,7 @@ check_text( m::Migration) = expr( m.migrate)
 
 
 """
-Migrations.Migration() |> migrate_text(\"""()->info(\"hello from migration\")\""")
+Migrations.Migration() |> migrate_text(\"""(m)->info(\"hello from migration\")\""")
 """
 migrate_text( t::AbstractString) = (m::Migration)->migrate_text( m, t)
 
@@ -92,7 +88,7 @@ migrate_text( t::AbstractString) = (m::Migration)->migrate_text( m, t)
 """
 m = Migrations.Migration(); 
 
-migrate_text( m, \"""()->info(\"hello from migration\")\""" )
+migrate_text( m, \"""(m)->info(\"hello from migration\")\""" )
 """
 migrate_text( m::Migration, t::AbstractString) = Migration( m.check, Implemented(t), m.rollback, m.store)
 
@@ -117,17 +113,19 @@ rollback_text( m::Migration) = expr( m.rollback)
 
 
 """
-Migrations.Migration() |> rollback_text(\"""()->info(\"hello from rollback\")\""")
+Migrations.Migration() |> rollback_text(\"""(m)->info(\"hello from rollback\")\""")
 """
 rollback_text( t::AbstractString) = (m::Migration)->rollback_text( m, t)
+
 
 
 """
 m = Migrations.Migration(); 
 
-rollback_text( m, \"""()->info(\"hello from migration\")\""" )
+rollback_text( m, \"""(m)->info(\"hello from migration\")\""" )
 """
 rollback_text( m::Migration, t::AbstractString) = Migration( m.check, m.migrate, Implemented(t), m.store)
+
 
 
 "m|>check"
@@ -139,13 +137,23 @@ function check( m::Migration)
 end 
 
 
+
 """migrate( m::Migration ) 
 
 migrate( m::Migration, force=true)"""
 migrate( m::Migration; force::Bool=false ) =
-    force ? doit( m.migrate, m):
-        check( m)::Bool ? nothing :
-            doit( m.migrate, m)
+    if force 
+        mg = doit( m.migrate, m)
+        Dict( :check=>:skipped, migrate=>mg)
+    else
+        if ( ch = check( m))::Bool 
+            Dict( :check=>ch, :migrate=>:notcalled)
+        else
+            mg = doit( m.migrate, m)
+            Dict( :check=>ch, :migrate=>mg)
+        end
+    end
+
 
 """
 m|>migrate
@@ -163,17 +171,24 @@ rollback( m, force=true) # without check()
 
 does rollback if check() returns true"""
 rollback( m::Migration; force::Bool=false) = 
-    force ? doit( m.rollback, m):
-        check( m)::Bool ? 
-            doit( m.rollback, m) :
-            nothing
+    if force 
+        rb = doit( m.rollback, m)
+        Dict( :check=>:skipped, :rollback=>rb)
+    else        
+        if ( ch = check( m))::Bool
+            rb = doit( m.rollback, m)
+            Dict( :check=>ch, :rollback=>rb)
+        else
+            Dict( :check=>ch, :rollback=>:notcalled)
+        end
+    end        
 
 
 """m|>rollback
 
 m|>rollback( force=true)
 """
-rollback( ;force::Bool=false ) = (m)->migrate( m, force=force)
+rollback( ;force::Bool=false ) = (m)->rollback( m, force=force)
 
 
 doit( i::Implemented, args... ) = i.func( args...)
