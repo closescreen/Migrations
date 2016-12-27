@@ -22,7 +22,9 @@ immutable Implemented<:Action
  unsafe::Bool
  
  function Implemented(t::AbstractString)
-    ex = parse(t)
+    try ex = parse(t)
+    catch e error("$e\nParsed text:\n$t") end
+    
     if isa( ex, Expr)
         ex.head == :incomplete && error("Incomplete expression:\n$t")
     else
