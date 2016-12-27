@@ -22,8 +22,7 @@ immutable Implemented<:Action
  unsafe::Bool
  
  function Implemented(t::AbstractString)
-    try ex = parse(t)
-    catch e error("$e\nParsed text:\n$t") end
+  try ex = parse(t)
     
     if isa( ex, Expr)
         ex.head == :incomplete && error("Incomplete expression:\n$t")
@@ -37,6 +36,8 @@ immutable Implemented<:Action
     end
     uns = ismatch( r"\bunsafe\b", t)
     new( ex, f, uns)
+    
+  catch e error("$e\nParsed text:\n$t") end
  end
 end
 
@@ -46,12 +47,39 @@ end
 using Migrations
 
 m = Migration()"""
-type Migration
+immutable Migration
+ check::Action
  migrate::Action
  rollback::Action
+ store::Dict{Symbol,Any}
 end 
 
-Migration() = Migration( NotImplemented(), NotImplemented() )
+Migration() = Migration( NotImplemented(), NotImplemented(), NotImplemented(), Dict{Symbol,Any}() )
+
+
+"""
+Migrations.Migration() |> check_text(\"""()->true\""")
+"""
+check_text( t::AbstractString) = (m::Migration)->check_text( m, t)
+
+
+
+"""
+m = Migrations.Migration(); 
+
+check_text( m, \"""()->info(\"hello from migration\")\""" )
+"""
+check_text( m::Migration, t::AbstractString) = Migration( Implemented(t), m.migrate, m.rollback, m.store)
+
+
+
+"""
+expr::Expr = m|>check_text
+"""
+check_text( m::Migration) = expr( m.migrate)
+
+
+#--
 
 
 """
@@ -66,7 +94,7 @@ m = Migrations.Migration();
 
 migrate_text( m, \"""()->info(\"hello from migration\")\""" )
 """
-migrate_text( m::Migration, t::AbstractString) = Migration( Implemented(t), m.rollback)
+migrate_text( m::Migration, t::AbstractString) = Migration( m.check, Implemented(t), m.rollback, m.store)
 
 
 
@@ -76,15 +104,15 @@ expr::Expr = m|>migrate_text
 migrate_text( m::Migration) = expr( m.migrate)
 
 
+expr( ni::NotImplemented) = ni
+expr( imp::Implemented) = imp.expr
+
+
 
 """
 expr::Expr = m|>rollback_text
 """
 rollback_text( m::Migration) = expr( m.rollback)
-
-
-expr( ni::NotImplemented) = ni
-expr( imp::Implemented) = imp.expr
 
 
 
@@ -94,28 +122,62 @@ Migrations.Migration() |> rollback_text(\"""()->info(\"hello from rollback\")\""
 rollback_text( t::AbstractString) = (m::Migration)->rollback_text( m, t)
 
 
-
 """
 m = Migrations.Migration(); 
 
 rollback_text( m, \"""()->info(\"hello from migration\")\""" )
 """
-rollback_text( m::Migration, t::AbstractString) = Migration( m.migrate, Implemented(t))
-
-"m|>migrate"
-migrate( m::Migration) = doit( m.migrate)
-
-"m|>rollback"
-rollback( m::Migration) = doit( m.rollback)
-
-doit( i::Implemented) = i.func()
-doit( ni::NotImplemented) = ni
+rollback_text( m::Migration, t::AbstractString) = Migration( m.check, m.migrate, Implemented(t), m.store)
 
 
+"m|>check"
+function check( m::Migration) 
+ rv = doit( m.check, m)
+ isa( rv, Bool) && return rv
+ isa( rv, NotImplemented ) && error("Not implemented check() for migration $m")
+ error("Bad type $(rv|>typeof) of returned value ($rv). Must be a Bool. check():\n$(m.check.expr)")
+end 
+
+
+"""migrate( m::Migration ) 
+
+migrate( m::Migration, force=true)"""
+migrate( m::Migration; force::Bool=false ) =
+    force ? doit( m.migrate, m):
+        check( m)::Bool ? nothing :
+            doit( m.migrate, m)
+
+"""
+m|>migrate
+
+m|>migrate( force=true) # without check()
+
+does migrate if check returns false"""
+migrate( ;force::Bool=false) = (m)->migrate( m, force=force)            
 
 
 
+"""rollback( m)
 
+rollback( m, force=true) # without check()
+
+does rollback if check() returns true"""
+rollback( m::Migration; force::Bool=false) = 
+    force ? doit( m.rollback, m):
+        check( m)::Bool ? 
+            doit( m.rollback, m) :
+            nothing
+
+
+"""m|>rollback
+
+m|>rollback( force=true)
+"""
+rollback( ;force::Bool=false ) = (m)->migrate( m, force=force)
+
+
+doit( i::Implemented, args... ) = i.func( args...)
+doit( ni::NotImplemented, args... ) = ni
 
 
 end # module
