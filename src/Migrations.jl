@@ -1,5 +1,16 @@
 """
-julia> Migration() |>
+Mig() |>
+
+	check_sql(\"EXISTS TABLE rnd600.t01\") |>
+
+	migrate_sql(\"""
+	CREATE TABLE rnd600.t01 
+	...
+	\""") |>
+
+
+	rollback_sql(\"DROP TABLE rnd600.t01\") |>
+
 
         cache_text( s\"""(m)-> (KH, server) = "chouse_conf.jl"|>include \""" )|>
           
@@ -80,6 +91,9 @@ using Migrations
 
 m = Migration()"""
 immutable Migration
+ check_sql::AbstractString
+ migrate_sql::AbstractString
+ rollback_sql::AbstractString
  cache::Action
  cached::Cache
  check::Action
@@ -93,11 +107,70 @@ typealias Mig Migration
 export Mig, Migration
 
 
-Mig(; cache::Action=NotImp(),
-            cached::Cache=EmptyCache(),
-            check::Action=NotImp(),
-            migrate::Action=NotImp(),
-            rollback::Action=NotImp() ) = Mig( cache, cached, check, migrate, rollback )
+Mig(; check_sql::AbstractString="",
+      migrate_sql::AbstractString="",
+      rollback_sql::AbstractString="",
+      cache::Action=NotImp(),
+      cached::Cache=EmptyCache(),
+      check::Action=NotImp(),
+      migrate::Action=NotImp(),
+      rollback::Action=NotImp() ) = Mig( check_sql, migrate_sql, rollback_sql, cache, cached, check, migrate, rollback )
+
+
+"""
+Migrations.Migration() |> check_sql(\"""EXISTS TABLE db1.table1\""")
+"""
+check_sql( t::Str) = (m::Mig)->check_sql( m, t)
+export check_sql
+
+
+"""
+m = Migrations.Migration(); 
+
+check_sql( m, \"""(m)->info(\"EXISTS TABLE db1.table1\")\""" )
+"""
+check_sql( m::Mig, t::Str) = Mig( 
+    check_sql=t, migrate_sql=m.migrate_sql, rollback_sql=m.rollback_sql, 
+    cache=m.cache, cached=m.cached, check=m.check, migrate=m.migrate, rollback=m.rollback)
+
+
+
+"""
+Migrations.Migration() |> migrate_sql(\"""EXISTS TABLE db1.table1\""")
+"""
+migrate_sql( t::Str) = (m::Mig)->migrate_sql( m, t)
+export migrate_sql
+
+
+
+"""
+m = Migrations.Migration(); 
+
+migrate_sql( m, \"""(m)->info(\"CREATE TABLE db1.table1 ...  \")\""" )
+"""
+migrate_sql( m::Mig, t::Str) = Mig( 
+    check_sql=m.check_sql, migrate_sql=t, rollback_sql=m.rollback_sql, 
+    cache=m.cache, cached=m.cached, check=m.check, migrate=m.migrate, rollback=m.rollback)
+
+
+
+"""
+Migrations.Migration() |> rollback_sql(\"""EXISTS TABLE db1.table1\""")
+"""
+rollback_sql( t::Str) = (m::Mig)->rollback_sql( m, t)
+export rollback_sql
+
+
+
+"""
+m = Migrations.Migration(); 
+
+rollback_sql( m, \"""(m)->info(\"DROP TABLE db1.table1  \")\""" )
+"""
+rollback_sql( m::Mig, t::Str) = Mig( 
+    check_sql=m.check_sql, migrate_sql=m.migrate_sql, rollback_sql=t,
+    cache=m.cache, cached=m.cached, check=m.check, migrate=m.migrate, rollback=m.rollback)
+
 
 
 """
@@ -112,8 +185,9 @@ m = Migrations.Migration();
 
 cache_text( m, \"""(m)->info(\"hello from migration\")\""" )
 """
-cache_text( m::Mig, t::Str) = 
-    Mig( cache=Imp( t, (m,)), cached=m.cached, check=m.check, migrate=m.migrate, rollback=m.rollback)
+cache_text( m::Mig, t::Str) = Mig( 
+    check_sql=m.check_sql, migrate_sql=m.migrate_sql, rollback_sql=m.rollback_sql, 
+    cache=Imp( t, (m,)), cached=m.cached, check=m.check, migrate=m.migrate, rollback=m.rollback)
 
 
 
@@ -137,8 +211,9 @@ m = Migrations.Migration();
 
 check_text( m, \"""(m)->info(\"hello from migration\")\""" )
 """
-check_text( m::Mig, t::Str) = 
-    Mig( cache=m.cache, cached=m.cached, check=Imp( t, (m,)), migrate=m.migrate, rollback=m.rollback)
+check_text( m::Mig, t::Str) = Mig( 
+    check_sql=m.check_sql, migrate_sql=m.migrate_sql, rollback_sql=m.rollback_sql, 
+    cache=m.cache, cached=m.cached, check=Imp( t, (m,)), migrate=m.migrate, rollback=m.rollback)
 
 
 
@@ -162,8 +237,9 @@ m = Migrations.Migration();
 
 migrate_text( m, \"""(m)->info(\"hello from migration\")\""" )
 """
-migrate_text( m::Mig, t::Str; danger::Bool=true) = 
-    Mig( cache=m.cache, cached=m.cached, check=m.check, migrate=Imp( t, (m,), danger=danger), rollback=m.rollback)
+migrate_text( m::Mig, t::Str; danger::Bool=true) = Mig( 
+    check_sql=m.check_sql, migrate_sql=m.migrate_sql, rollback_sql=m.rollback_sql,
+    cache=m.cache, cached=m.cached, check=m.check, migrate=Imp( t, (m,), danger=danger), rollback=m.rollback)
 
 
 
@@ -198,8 +274,9 @@ m = Migrations.Migration();
 
 rollback_text( m, \"""(m)->info(\"hello from migration\")\""" )
 """
-rollback_text( m::Mig, t::Str; danger::Bool=true) = 
-    Mig( cache=m.cache, cached=m.cached, check=m.check, migrate=m.migrate, rollback=Imp( t, (m,), danger=danger))
+rollback_text( m::Mig, t::Str; danger::Bool=true) = Mig( 
+    check_sql=m.check_sql, migrate_sql=m.migrate_sql, rollback_sql=m.rollback_sql,
+    cache=m.cache, cached=m.cached, check=m.check, migrate=m.migrate, rollback=Imp( t, (m,), danger=danger))
 
 
 
@@ -213,7 +290,9 @@ function cache( m::Mig; debug::Bool=false)::Mig
     rv = doit( m.cache, m, debug=debug, prefix="Run cache()")
     isa( rv, NotImp ) && return m
     isa( rv, Void ) && error("cache() not return any value! Must return something.\n$(m.cache.expr)")
-    Mig( cache=m.cache, cached=FullCache(rv), check=m.check, migrate=m.migrate, rollback=m.rollback )
+    Mig(
+	check_sql=m.check_sql, migrate_sql=m.migrate_sql, rollback_sql=m.rollback_sql, 
+	cache=m.cache, cached=FullCache(rv), check=m.check, migrate=m.migrate, rollback=m.rollback )
  else
     m
  end
